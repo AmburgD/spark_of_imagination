@@ -8,7 +8,7 @@
 // Button GPIO inputs
 // CONNECT TO VIN and 2
 #define BUTTON_PIN 2
-#define NUM_LEDS 4
+#define NUM_LEDS 8
 #define DATA_PIN 4
 
 CRGB leds[NUM_LEDS];
@@ -18,10 +18,10 @@ Debouncer buttonDebouncer(50, false); // Debounce delay of 50 ms, Use Active Hig
 int buttonState;
 
 // set up a code for HTTP client
-const char *ssid = "";
+const char *ssid = "ONUGuest";
 const char *password = "";
-const char *serverURL = "http://192.168.74.234:5000/play";
-const char *serverStopURL = "http://192.168.74.234:5000/stop";
+const char *serverURL = "http://PI.IP.HERE.:):5000/play";
+const char *serverStopURL = "http://PI.IP.HERE.:):5000/stop";
 HTTPClient http;
 
 int buttonCountOne = 0;
@@ -154,10 +154,12 @@ void loop()
         {
           delay(250);
           retries++;
+          Serial.println(retries);
         }
 
         if (WiFi.status() == WL_CONNECTED)
         {
+          Serial.println("Connected");
           http.begin(serverURL);
           int responseCode = http.POST("");
 
@@ -169,6 +171,7 @@ void loop()
           }
           else
           {
+            Serial.println("not Connected");
             leds[0] = CRGB::Red;
             FastLED.show();
           }
