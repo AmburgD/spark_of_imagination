@@ -1,4 +1,6 @@
-import subprocess
+import json
+import os
+import socket
 import threading
 import time
 
@@ -7,9 +9,33 @@ from werkzeug.serving import make_server
 
 app = Flask(__name__)
 
+# --- Constants ---
 IDLE_VIDEO_PATH = "/home/projectorcomp/idle.gif"
 MAIN_VIDEO_PATH = "/home/projectorcomp/prb3Capstonee.gif"
-video_process = None
+MPV_SOCKET = "/tmp/mpvsocket"
+
+
+# --- MPV Control Functions ---
+def send_mpv_command(command):
+    """Send a JSON command to mpv via its IPC socket."""
+    try:
+        with socket.socket(socket.AF_UNIX) as sock:
+            sock.connect(MPV_SOCKET)
+            sock.send((json.dumps(command) + "\n").encode("utf-8"))
+    except Exception as e:
+        print(f"Error sending command to mpv: {e}")
+
+
+def play_main_video():
+    print("Playing main video...")
+    send_mpv_command({"command": ["loadfile", MAIN_VIDEO_PATH, "replace"]})
+    send_mpv_command({"command": ["set_property", "loop", "no"]})
+
+
+def resume_idle():
+    print("Resuming idle gif...")
+    send_mpv_command({"command": ["loadfile", IDLE_VIDEO_PATH, "replace"]})
+    send_mpv_command({"command": ["set_property", "loop", "yes"]})
 
 
 # --- Flask Routes ---
@@ -20,31 +46,14 @@ def hello():
 
 @app.route("/play", methods=["POST"])
 def trigger_play():
-    global video_process
-
-    # Stop current playback (idle or main)
-    if video_process and video_process.poll() is None:
-        video_process.terminate()
-        video_process.wait()
-
-    # Start main video in a separate thread
-    threading.Thread(target=play_main_video).start()
+    play_main_video()
     return "Main video started."
 
 
 @app.route("/stop", methods=["POST"])
 def stop_video():
-    global video_process
-
-    if video_process and video_process.poll() is None:
-        print("Stopping video...")
-        video_process.terminate()
-        video_process.wait()
-
-    # Resume idle
-    print("Resuming idle gif...")
-    video_process = subprocess.Popen(["mpv", "--loop", "--fs", "--osd-level=0", IDLE_VIDEO_PATH])
-    return "Video stopped and idle gif resumed."
+    resume_idle()
+    return "Idle gif resumed."
 
 
 # --- Flask Server in Background Thread ---
@@ -64,28 +73,21 @@ class ServerThread(threading.Thread):
         self.server.shutdown()
 
 
-# --- Play Idle GIF on Startup ---
-def play_idle_gif():
-    global video_process
-    print("Starting idle gif...")
-    video_process = subprocess.Popen(["mpv", "--loop", "--fs", "--osd-level=0", IDLE_VIDEO_PATH])
+# --- Start mpv in idle mode with IPC ---
+def start_mpv_idle():
+    print("Starting mpv in idle mode...")
+    # Remove stale socket if it exists
+    if os.path.exists(MPV_SOCKET):
+        os.remove(MPV_SOCKET)
 
-
-# --- Play Main Video (Non-blocking helper) ---
-def play_main_video():
-    global video_process
-    print("Playing main video...")
-    video_process = subprocess.Popen(["mpv", "--fs", "--osd-level=0", MAIN_VIDEO_PATH])
-    video_process.wait()
-
-    # When video ends naturally, resume idle gif
-    print("Main video ended, resuming idle gif...")
-    video_process = subprocess.Popen(["mpv", "--loop", "--fs", "--osd-level=0", IDLE_VIDEO_PATH])
+    subprocess.Popen(["mpv", "--idle=yes", "--fs", "--osd-level=0", "--input-ipc-server=" + MPV_SOCKET, "--loop", IDLE_VIDEO_PATH])
 
 
 # --- Main ---
 if __name__ == "__main__":
-    play_idle_gif()
+    import subprocess
+
+    start_mpv_idle()
 
     flask_thread = ServerThread(app)
     flask_thread.start()
@@ -96,6 +98,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("Shutting down gracefully...")
         flask_thread.shutdown()
-        if video_process and video_process.poll() is None:
-            video_process.terminate()
-            video_process.wait()
